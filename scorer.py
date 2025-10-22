@@ -1,14 +1,16 @@
 """
 Scoring engine for evaluating posts based on executive pain signals.
 
-NEW REFINED SCORING (focused on CEO/founder pain only):
+REFINED SCORING (focused on CEO/founder pain + seeking help):
 - REQUIRED: Must be identifiable CEO/founder (no score without this)
 - +40 points: Clear CEO/founder identity (first-person)
+- +35 points: Explicitly seeking help ("looking for", "need recommendations")
 - +30 points: Visceral pain/anxiety/frustration
-- +20 points: Cultural or velocity problems
+- +25 points: Job posting for senior eng role at <2yr old company
+- +20 points: Cultural or velocity problems OR frustrated tone
 - +10 points: Specific engineering pain (debt, quality, team issues)
 
-Only scores posts from CEOs/founders expressing genuine pain.
+Scores both pain signals AND hiring signals from CEOs/founders.
 """
 
 import re
@@ -62,6 +64,29 @@ class PostScorer:
         r'\bready\s+to\s+give\s+up\b',
     ]
 
+    # Explicitly seeking help (+35 points)
+    SEEKING_HELP = [
+        r'\blooking\s+for\s+(?:a\s+)?(?:CTO|VP\s+Engineering|VP\s+Eng|engineering\s+leader|fractional\s+CTO)\b',
+        r'\bneed\s+(?:a\s+)?(?:CTO|VP\s+Engineering|VP\s+Eng|engineering\s+leader)\b',
+        r'\bseeking\s+(?:a\s+)?(?:CTO|VP\s+Engineering|engineering\s+leader)\b',
+        r'\b(?:anyone\s+)?recommend\s+(?:a\s+)?(?:CTO|VP\s+Engineering|engineering\s+leader)\b',
+        r'\bhiring\s+(?:a\s+)?(?:CTO|VP\s+Engineering|Head\s+of\s+Engineering)\b',
+        r'\bneed\s+recommendations?\s+for\s+(?:CTO|VP\s+Engineering)\b',
+        r'\bhow\s+to\s+find\s+(?:a\s+)?(?:CTO|VP\s+Engineering|engineering\s+leader)\b',
+        r'\bhow\s+to\s+hire\s+(?:a\s+)?(?:CTO|VP\s+Engineering)\b',
+    ]
+
+    # Frustrated tone (+20 points)
+    FRUSTRATED_TONE = [
+        r'\bstruggling\s+to\s+find\b',
+        r'\bcan\'t\s+find\s+(?:a\s+)?(?:CTO|VP\s+Engineering|engineering\s+leader)\b',
+        r'\bburned\s+by\b',
+        r'\bhad\s+bad\s+experience\b',
+        r'\blast\s+(?:CTO|VP\s+Engineering)\s+(?:didn\'t\s+work\s+out|failed)\b',
+        r'\bno\s+luck\s+finding\b',
+        r'\bevery\s+(?:CTO|candidate)\s+(?:I\'ve\s+interviewed|we\'ve\s+tried)\b',
+    ]
+
     # Cultural and velocity problems (+20 points)
     CULTURE_VELOCITY_ISSUES = [
         r'\bvelocity\s+(?:is\s+)?(?:terrible|awful|slow|dropping|decreased)\b',
@@ -101,7 +126,9 @@ class PostScorer:
         """Initialize scorer with compiled regex patterns."""
         self.strong_ceo_patterns = [re.compile(p, re.IGNORECASE) for p in self.STRONG_CEO_IDENTITY]
         self.weak_ceo_patterns = [re.compile(p, re.IGNORECASE) for p in self.WEAK_CEO_IDENTITY]
+        self.seeking_help_patterns = [re.compile(p, re.IGNORECASE) for p in self.SEEKING_HELP]
         self.visceral_pain_patterns = [re.compile(p, re.IGNORECASE) for p in self.VISCERAL_PAIN]
+        self.frustrated_tone_patterns = [re.compile(p, re.IGNORECASE) for p in self.FRUSTRATED_TONE]
         self.culture_velocity_patterns = [re.compile(p, re.IGNORECASE) for p in self.CULTURE_VELOCITY_ISSUES]
         self.engineering_pain_patterns = [re.compile(p, re.IGNORECASE) for p in self.ENGINEERING_PAIN]
 
@@ -177,28 +204,50 @@ class PostScorer:
                 evidence_quotes.append(f"Identity: \"{ceo_match}\"")
                 ceo_strength = "weak"
 
-        # If no CEO identity found, return score of 0
-        if not ceo_strength:
+        # If no CEO identity found, check if it's a job posting
+        is_job_posting = post.get('type') == 'job_posting'
+
+        if not ceo_strength and not is_job_posting:
             post["score"] = 0
             post["score_breakdown"] = "Not a CEO/founder post"
             post["evidence"] = "No CEO/founder identity detected"
             return post
 
-        # STEP 2: Check for visceral pain/anxiety (+30)
+        # STEP 2: Check for explicitly seeking help (+35)
+        seeking_match = self._find_pattern_match(combined_text, self.seeking_help_patterns)
+        if seeking_match:
+            score += 35
+            breakdown.append("Seeking Help (+35)")
+            evidence_quotes.append(f"Seeking: \"{seeking_match}\"")
+
+        # STEP 3: Check for job posting at young company (+25)
+        if is_job_posting and post.get('is_young_company'):
+            score += 25
+            breakdown.append("Young Company Job Posting (+25)")
+            evidence_quotes.append(f"Young startup hiring: \"{post.get('company', 'Unknown')}\" - {post.get('company_batch', 'Recent')}")
+
+        # STEP 4: Check for visceral pain/anxiety (+30)
         pain_match = self._find_pattern_match(combined_text, self.visceral_pain_patterns)
         if pain_match:
             score += 30
             breakdown.append("Visceral Pain/Anxiety (+30)")
             evidence_quotes.append(f"Pain: \"{pain_match}\"")
 
-        # STEP 3: Check for culture/velocity issues (+20)
-        culture_match = self._find_pattern_match(combined_text, self.culture_velocity_patterns)
-        if culture_match:
+        # STEP 5: Check for frustrated tone (+20)
+        frustrated_match = self._find_pattern_match(combined_text, self.frustrated_tone_patterns)
+        if frustrated_match:
             score += 20
-            breakdown.append("Culture/Velocity Issues (+20)")
-            evidence_quotes.append(f"Culture: \"{culture_match}\"")
+            breakdown.append("Frustrated Tone (+20)")
+            evidence_quotes.append(f"Frustrated: \"{frustrated_match}\"")
+        else:
+            # If no frustrated tone, check for culture/velocity issues (+20)
+            culture_match = self._find_pattern_match(combined_text, self.culture_velocity_patterns)
+            if culture_match:
+                score += 20
+                breakdown.append("Culture/Velocity Issues (+20)")
+                evidence_quotes.append(f"Culture: \"{culture_match}\"")
 
-        # STEP 4: Check for specific engineering pain (+10)
+        # STEP 6: Check for specific engineering pain (+10)
         eng_pain_match = self._find_pattern_match(combined_text, self.engineering_pain_patterns)
         if eng_pain_match:
             score += 10

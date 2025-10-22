@@ -24,16 +24,28 @@ class HNScraper:
         """
         self.days = days
         self.search_keywords = [
+            # Direct role mentions
             "CTO",
             "VP Engineering",
+            "Head of Engineering",
+            "engineering leader",
+            "fractional CTO",
+
+            # Seeking/hiring language
+            "how to find CTO",
+            "how to find VP Engineering",
+            "how to hire engineering leader",
+            "looking for CTO",
+            "looking for VP Engineering",
+            "recommend CTO",
+            "recommend VP Engineering",
+
+            # Pain signals
             "engineering team",
             "technical debt",
             "can't ship",
             "slow development",
             "hiring engineers",
-            "eng manager",
-            "engineering manager",
-            "tech lead",
         ]
 
     def _get_timestamp_filter(self) -> int:

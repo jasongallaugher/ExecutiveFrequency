@@ -9,6 +9,8 @@ dependencies = [
     "praw>=7.7.1",
     "click>=8.1.0",
     "python-dateutil>=2.9.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
 ]
 
 [project.scripts]
@@ -23,5 +25,8 @@ include = [
     "main.py",
     "hn_scraper.py",
     "reddit_scraper.py",
+    "twitter_scraper.py",
+    "linkedin_scraper.py",
+    "job_board_scraper.py",
     "scorer.py",
 ]

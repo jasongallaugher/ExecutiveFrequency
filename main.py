@@ -13,6 +13,9 @@ from typing import List, Dict
 
 from hn_scraper import HNScraper
 from reddit_scraper import RedditScraper
+from twitter_scraper import TwitterScraper
+from linkedin_scraper import LinkedInScraper
+from job_board_scraper import JobBoardScraper
 from scorer import PostScorer
 
 
@@ -128,8 +131,13 @@ def cli():
 @click.option('--show-top', default=10, help='Number of top results to display (default: 10)')
 @click.option('--reddit-only', is_flag=True, help='Only scrape Reddit')
 @click.option('--hn-only', is_flag=True, help='Only scrape HackerNews')
-def search(days: int, output: str, min_score: int, show_top: int, reddit_only: bool, hn_only: bool):
-    """Search for executive engineering pain signals."""
+@click.option('--twitter-only', is_flag=True, help='Only scrape Twitter/X')
+@click.option('--jobs-only', is_flag=True, help='Only scrape job boards')
+@click.option('--skip-twitter', is_flag=True, help='Skip Twitter/X scraping')
+@click.option('--skip-jobs', is_flag=True, help='Skip job board scraping')
+def search(days: int, output: str, min_score: int, show_top: int, reddit_only: bool, hn_only: bool,
+           twitter_only: bool, jobs_only: bool, skip_twitter: bool, skip_jobs: bool):
+    """Search for executive engineering pain signals across all sources."""
 
     print(f"\n{'='*80}")
     print(f"ExecutiveFrequency - Engineering Pain Signal Finder")
@@ -139,18 +147,38 @@ def search(days: int, output: str, min_score: int, show_top: int, reddit_only: b
     print()
 
     all_posts = []
+    source_counts = {}
+
+    # Determine which sources to scrape
+    scrape_all = not any([reddit_only, hn_only, twitter_only, jobs_only])
 
     # Scrape HackerNews
-    if not reddit_only:
+    if scrape_all or hn_only:
         hn_scraper = HNScraper(days=days)
         hn_posts = hn_scraper.scrape()
         all_posts.extend(hn_posts)
+        source_counts['HackerNews'] = len(hn_posts)
 
     # Scrape Reddit
-    if not hn_only:
+    if scrape_all or reddit_only:
         reddit_scraper = RedditScraper(days=days)
         reddit_posts = reddit_scraper.scrape()
         all_posts.extend(reddit_posts)
+        source_counts['Reddit'] = len(reddit_posts)
+
+    # Scrape Twitter/X
+    if (scrape_all or twitter_only) and not skip_twitter:
+        twitter_scraper = TwitterScraper(days=days)
+        twitter_posts = twitter_scraper.scrape()
+        all_posts.extend(twitter_posts)
+        source_counts['Twitter'] = len(twitter_posts)
+
+    # Scrape Job Boards
+    if (scrape_all or jobs_only) and not skip_jobs:
+        job_scraper = JobBoardScraper(days=days)
+        job_posts = job_scraper.scrape()
+        all_posts.extend(job_posts)
+        source_counts['YC Jobs'] = len(job_posts)
 
     print(f"\nTotal posts found: {len(all_posts)}")
 
@@ -174,12 +202,32 @@ def search(days: int, output: str, min_score: int, show_top: int, reddit_only: b
         avg_score = sum(p["score"] for p in filtered_posts) / len(filtered_posts)
         max_score = max(p["score"] for p in filtered_posts)
 
+        # Count by source
+        source_breakdown = {}
+        for post in filtered_posts:
+            source = post.get("source", "Unknown")
+            source_breakdown[source] = source_breakdown.get(source, 0) + 1
+
         print(f"\n{'='*80}")
         print(f"STATISTICS")
         print(f"{'='*80}")
         print(f"Total posts analyzed: {len(all_posts)}")
-        print(f"Posts with signals: {len(filtered_posts)}")
-        print(f"Average score: {avg_score:.1f}")
+
+        # Show source breakdown
+        if source_counts:
+            print(f"\nPosts found by source:")
+            for source, count in source_counts.items():
+                print(f"  {source}: {count}")
+
+        print(f"\nPosts with signals: {len(filtered_posts)}")
+
+        # Show scored posts by source
+        if source_breakdown:
+            print(f"\nScored posts by source:")
+            for source, count in sorted(source_breakdown.items(), key=lambda x: x[1], reverse=True):
+                print(f"  {source}: {count}")
+
+        print(f"\nAverage score: {avg_score:.1f}")
         print(f"Maximum score: {max_score}")
         print(f"\nResults saved to: {output}")
 
