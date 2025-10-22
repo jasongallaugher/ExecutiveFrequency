@@ -104,6 +104,29 @@ class PostScorer:
         """Check if any pattern matches in text."""
         return any(pattern.search(text) for pattern in patterns)
 
+    def _find_pattern_match(self, text: str, patterns: list) -> Optional[str]:
+        """Find first matching pattern and return the surrounding context."""
+        for pattern in patterns:
+            match = pattern.search(text)
+            if match:
+                # Get context around the match (50 chars before and after)
+                start = max(0, match.start() - 50)
+                end = min(len(text), match.end() + 100)
+
+                # Extract and clean up the context
+                context = text[start:end].strip()
+                # Clean up whitespace
+                context = " ".join(context.split())
+
+                # Add ellipsis if we truncated
+                if start > 0:
+                    context = "..." + context
+                if end < len(text):
+                    context = context + "..."
+
+                return context
+        return None
+
     def _count_pain_keywords(self, text: str) -> int:
         """Count unique pain keywords (max 3 for scoring)."""
         count = sum(1 for pattern in self.pain_patterns if pattern.search(text))
@@ -117,7 +140,7 @@ class PostScorer:
             post: Post dictionary with title, text, author, etc.
 
         Returns:
-            Post dictionary with added 'score' and 'score_breakdown' fields
+            Post dictionary with added 'score', 'score_breakdown', and 'evidence' fields
         """
         # Combine all text for analysis
         title = post.get("title", "")
@@ -130,27 +153,36 @@ class PostScorer:
 
         score = 0
         breakdown = []
+        evidence_quotes = []
 
         # CEO/Founder indicators (+30)
-        if self._check_patterns(combined_text, self.ceo_patterns) or \
-           self._check_patterns(combined_author, self.ceo_patterns):
+        ceo_match = self._find_pattern_match(combined_text, self.ceo_patterns) or \
+                    self._find_pattern_match(combined_author, self.ceo_patterns)
+        if ceo_match:
             score += 30
             breakdown.append("CEO/Founder (+30)")
+            evidence_quotes.append(f"CEO/Founder: \"{ceo_match}\"")
 
         # Urgency indicators (+25)
-        if self._check_patterns(combined_text, self.urgency_patterns):
+        urgency_match = self._find_pattern_match(combined_text, self.urgency_patterns)
+        if urgency_match:
             score += 25
             breakdown.append("Urgency (+25)")
+            evidence_quotes.append(f"Urgency: \"{urgency_match}\"")
 
         # Transition keywords (+20)
-        if self._check_patterns(combined_text, self.transition_patterns):
+        transition_match = self._find_pattern_match(combined_text, self.transition_patterns)
+        if transition_match:
             score += 20
             breakdown.append("Transition/Hiring (+20)")
+            evidence_quotes.append(f"Hiring: \"{transition_match}\"")
 
         # Velocity issues (+15)
-        if self._check_patterns(combined_text, self.velocity_patterns):
+        velocity_match = self._find_pattern_match(combined_text, self.velocity_patterns)
+        if velocity_match:
             score += 15
             breakdown.append("Velocity Issues (+15)")
+            evidence_quotes.append(f"Velocity: \"{velocity_match}\"")
 
         # Pain keywords (+10 each, max 3)
         pain_count = self._count_pain_keywords(combined_text)
@@ -158,9 +190,13 @@ class PostScorer:
             pain_score = pain_count * 10
             score += pain_score
             breakdown.append(f"Pain Keywords x{pain_count} (+{pain_score})")
+            pain_match = self._find_pattern_match(combined_text, self.pain_patterns)
+            if pain_match:
+                evidence_quotes.append(f"Pain: \"{pain_match}\"")
 
         post["score"] = score
         post["score_breakdown"] = ", ".join(breakdown) if breakdown else "No signals"
+        post["evidence"] = " | ".join(evidence_quotes) if evidence_quotes else "No evidence extracted"
 
         return post
 

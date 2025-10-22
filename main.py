@@ -51,6 +51,7 @@ def export_to_csv(posts: List[Dict], output_file: str):
         "excerpt",
         "date",
         "score_breakdown",
+        "evidence",
     ]
 
     with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
@@ -80,6 +81,7 @@ def export_to_csv(posts: List[Dict], output_file: str):
                 "excerpt": excerpt,
                 "date": date_str,
                 "score_breakdown": post.get("score_breakdown", ""),
+                "evidence": post.get("evidence", ""),
             })
 
     print(f"\nExported {len(posts)} posts to {output_file}")
@@ -101,11 +103,14 @@ def display_top_results(posts: List[Dict], limit: int = 10):
         title = post.get("title", "")
         author = post.get("author", "")
         breakdown = post.get("score_breakdown", "")
+        evidence = post.get("evidence", "")
         link = post.get("reddit_url") or post.get("hn_url") or post.get("url", "")
 
         print(f"{i}. [{score:3d}] {title[:70]}")
         print(f"   Source: {source} | Author: {author}")
         print(f"   Signals: {breakdown}")
+        if evidence and evidence != "No evidence extracted":
+            print(f"   Evidence: {evidence}")
         print(f"   Link: {link}")
         print()
 
@@ -209,11 +214,14 @@ def show(csv_file: str, limit: int):
         title = post.get("title", "")
         author = post.get("author", "")
         breakdown = post.get("score_breakdown", "")
+        evidence = post.get("evidence", "")
         link = post.get("link", "")
 
         print(f"{i}. [{score:>3}] {title[:70]}")
         print(f"   Source: {source} | Author: {author}")
         print(f"   Signals: {breakdown}")
+        if evidence and evidence != "No evidence extracted":
+            print(f"   Evidence: {evidence}")
         print(f"   Link: {link}")
         print()
 
