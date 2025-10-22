@@ -1,104 +1,109 @@
 """
 Scoring engine for evaluating posts based on executive pain signals.
 
-Scoring criteria (0-100):
-- +30 CEO/founder flair or identity
-- +25 urgency indicators (timeline/money mentions)
-- +20 transition keywords (hiring, replacing, need to)
-- +15 velocity/shipping issues
-- +10 per additional pain keyword
+NEW REFINED SCORING (focused on CEO/founder pain only):
+- REQUIRED: Must be identifiable CEO/founder (no score without this)
+- +40 points: Clear CEO/founder identity (first-person)
+- +30 points: Visceral pain/anxiety/frustration
+- +20 points: Cultural or velocity problems
+- +10 points: Specific engineering pain (debt, quality, team issues)
+
+Only scores posts from CEOs/founders expressing genuine pain.
 """
 
 import re
-from typing import Dict
+from typing import Dict, Optional
 
 
 class PostScorer:
     """Score posts based on executive engineering pain signals."""
 
-    # CEO/Founder indicators (+30 points)
-    CEO_FOUNDER_KEYWORDS = [
-        r'\bCEO\b',
-        r'\bfounder\b',
-        r'\bco-founder\b',
-        r'\bCTO\b',
-        r'\bchief\s+technology\s+officer\b',
-        r'\bmy\s+company\b',
-        r'\bour\s+startup\b',
+    # Strong CEO/Founder identity - first person only (+40 points)
+    # Must include "I" or "my" or "our" to prove it's the actual CEO posting
+    STRONG_CEO_IDENTITY = [
+        r'\bI\'m\s+(?:the\s+)?(?:CEO|founder|co-founder|CTO)\b',
+        r'\bI\s+am\s+(?:the\s+)?(?:CEO|founder|co-founder|CTO)\b',
+        r'\bas\s+(?:the\s+)?(?:CEO|founder|co-founder)\b',
         r'\bI\s+founded\b',
-        r'\bI\s+started\b',
+        r'\bI\s+started\s+(?:this|the|my)\s+company\b',
+        r'\bmy\s+startup\b',
+        r'\bour\s+startup\b.*\bI\b',  # "our startup" + "I" nearby
+        r'\bmy\s+company\b.*\bI\b',   # "my company" + "I" nearby
     ]
 
-    # Urgency indicators (+25 points)
-    URGENCY_KEYWORDS = [
-        r'\basap\b',
-        r'\bimmediately\b',
-        r'\burgent\b',
-        r'\bcritical\b',
-        r'\bburnrate\b',
-        r'\bburn\s+rate\b',
-        r'\brunway\b',
-        r'\$\d+[km]?\b',  # Money mentions
-        r'\d+\s+months?\b',  # Timeline mentions
-        r'\d+\s+weeks?\b',
-        r'\bcrisis\b',
-        r'\bemergency\b',
+    # Weaker CEO identity signals (still valid but lower confidence)
+    WEAK_CEO_IDENTITY = [
+        r'\bfounder\b.*\bI\b',
+        r'\bCEO\b.*\bI\b',
+        r'\bI\b.*\bmy\s+company\b',
     ]
 
-    # Transition keywords (+20 points)
-    TRANSITION_KEYWORDS = [
-        r'\bneed\s+to\s+hire\b',
-        r'\bhiring\s+a\b',
-        r'\blooking\s+for\b',
-        r'\breplace\b',
-        r'\breplacing\b',
-        r'\bneed\s+a\s+CTO\b',
-        r'\bneed\s+a\s+VP\b',
-        r'\bneed\s+an?\s+eng',
-        r'\bmust\s+hire\b',
-        r'\bbringing\s+on\b',
+    # Visceral pain and anxiety - emotional language (+30 points)
+    VISCERAL_PAIN = [
+        r'\bfrustrat(?:ed|ing)\b',
+        r'\bworried\b',
+        r'\banxious\b',
+        r'\bstressed\b',
+        r'\bkeeps\s+me\s+(?:up|awake)\b',
+        r'\bcan\'t\s+sleep\b',
+        r'\blosing\s+sleep\b',
+        r'\bpanick?(?:ed|ing)\b',
+        r'\bdesperate\b',
+        r'\bafraid\b',
+        r'\bscared\b',
+        r'\bterrified\b',
+        r'\bat\s+my\s+wits?\s+end\b',
+        r'\bdon\'t\s+know\s+what\s+to\s+do\b',
+        r'\bpulling\s+my\s+hair\s+out\b',
+        r'\bgoing\s+crazy\b',
+        r'\bdriving\s+me\s+crazy\b',
+        r'\bhate\s+(?:this|it)\b',
+        r'\bwant\s+to\s+quit\b',
+        r'\bready\s+to\s+give\s+up\b',
     ]
 
-    # Velocity/shipping issues (+15 points)
-    VELOCITY_KEYWORDS = [
+    # Cultural and velocity problems (+20 points)
+    CULTURE_VELOCITY_ISSUES = [
+        r'\bvelocity\s+(?:is\s+)?(?:terrible|awful|slow|dropping|decreased)\b',
         r'\bcan\'t\s+ship\b',
         r'\bcannot\s+ship\b',
-        r'\bslow\s+development\b',
-        r'\bmissed\s+deadline\b',
-        r'\bbehind\s+schedule\b',
-        r'\btaking\s+too\s+long\b',
         r'\bnot\s+shipping\b',
-        r'\bstuck\b',
-        r'\bblocked\b',
-        r'\bvelocity\b',
-        r'\bthroughput\b',
+        r'\bslow\s+(?:to\s+)?ship\b',
+        r'\bmissed?\s+(?:every\s+)?deadline',
+        r'\bbehind\s+schedule\b',
+        r'\bculture\s+(?:is\s+)?(?:toxic|broken|terrible|bad)\b',
+        r'\bteam\s+(?:is\s+)?(?:dysfunctional|broken|not\s+working)\b',
+        r'\bno\s+one\s+(?:cares|wants\s+to\s+work)\b',
+        r'\bpeople\s+are\s+(?:leaving|quitting)\b',
+        r'\bexodus\b',
+        r'\bmass\s+resignation\b',
+        r'\beveryone\'s?\s+(?:leaving|quitting)\b',
+        r'\bmorale\s+is\s+(?:low|terrible|awful)\b',
     ]
 
-    # Additional pain keywords (+10 each, max 3)
-    PAIN_KEYWORDS = [
-        r'\btechnical\s+debt\b',
-        r'\btech\s+debt\b',
-        r'\blegacy\s+code\b',
-        r'\bscaling\s+issues\b',
-        r'\bcan\'t\s+scale\b',
-        r'\boutage\b',
-        r'\bdowntime\b',
-        r'\bquality\s+issues\b',
-        r'\bbug',
-        r'\bbroken\b',
-        r'\bfailing\b',
-        r'\bturnover\b',
-        r'\bquitting\b',
-        r'\bleaving\b',
+    # Specific engineering pain (+10 points)
+    ENGINEERING_PAIN = [
+        r'\btechnical\s+debt\s+(?:is\s+)?(?:killing|crushing|overwhelming)\b',
+        r'\btech\s+debt\s+(?:out\s+of\s+control|massive|huge)\b',
+        r'\blegacy\s+(?:codebase|system)\s+(?:is\s+)?(?:unmaintainable|a\s+nightmare)\b',
+        r'\bcan\'t\s+(?:scale|grow)\b',
+        r'\bscaling\s+(?:problems|issues|crisis)\b',
+        r'\bconstant\s+(?:outages|fires|incidents)\b',
+        r'\bproduction\s+(?:is\s+)?(?:on\s+fire|constantly\s+breaking|unstable)\b',
+        r'\bquality\s+(?:is\s+)?(?:terrible|awful|suffering)\b',
+        r'\b(?:critical\s+)?bugs?\s+(?:everywhere|constantly)\b',
+        r'\bturnover\s+(?:is\s+)?(?:high|terrible|killing\s+us)\b',
+        r'\bcan\'t\s+(?:hire|find|retain)\s+(?:good\s+)?(?:engineers?|developers?)\b',
+        r'\barchitecture\s+(?:is\s+)?(?:a\s+mess|terrible|broken)\b',
     ]
 
     def __init__(self):
         """Initialize scorer with compiled regex patterns."""
-        self.ceo_patterns = [re.compile(p, re.IGNORECASE) for p in self.CEO_FOUNDER_KEYWORDS]
-        self.urgency_patterns = [re.compile(p, re.IGNORECASE) for p in self.URGENCY_KEYWORDS]
-        self.transition_patterns = [re.compile(p, re.IGNORECASE) for p in self.TRANSITION_KEYWORDS]
-        self.velocity_patterns = [re.compile(p, re.IGNORECASE) for p in self.VELOCITY_KEYWORDS]
-        self.pain_patterns = [re.compile(p, re.IGNORECASE) for p in self.PAIN_KEYWORDS]
+        self.strong_ceo_patterns = [re.compile(p, re.IGNORECASE) for p in self.STRONG_CEO_IDENTITY]
+        self.weak_ceo_patterns = [re.compile(p, re.IGNORECASE) for p in self.WEAK_CEO_IDENTITY]
+        self.visceral_pain_patterns = [re.compile(p, re.IGNORECASE) for p in self.VISCERAL_PAIN]
+        self.culture_velocity_patterns = [re.compile(p, re.IGNORECASE) for p in self.CULTURE_VELOCITY_ISSUES]
+        self.engineering_pain_patterns = [re.compile(p, re.IGNORECASE) for p in self.ENGINEERING_PAIN]
 
     def _check_patterns(self, text: str, patterns: list) -> bool:
         """Check if any pattern matches in text."""
@@ -127,14 +132,11 @@ class PostScorer:
                 return context
         return None
 
-    def _count_pain_keywords(self, text: str) -> int:
-        """Count unique pain keywords (max 3 for scoring)."""
-        count = sum(1 for pattern in self.pain_patterns if pattern.search(text))
-        return min(count, 3)
-
     def score_post(self, post: Dict) -> Dict:
         """
         Score a post based on executive pain signals.
+
+        NEW LOGIC: Only scores posts from identifiable CEOs/founders expressing pain.
 
         Args:
             post: Post dictionary with title, text, author, etc.
@@ -155,48 +157,57 @@ class PostScorer:
         breakdown = []
         evidence_quotes = []
 
-        # CEO/Founder indicators (+30)
-        ceo_match = self._find_pattern_match(combined_text, self.ceo_patterns) or \
-                    self._find_pattern_match(combined_author, self.ceo_patterns)
+        # STEP 1: Check for CEO/Founder identity (REQUIRED)
+        # Try strong patterns first
+        ceo_match = self._find_pattern_match(combined_text, self.strong_ceo_patterns)
+        ceo_strength = None
+
         if ceo_match:
+            score += 40
+            breakdown.append("CEO/Founder Identity (+40)")
+            evidence_quotes.append(f"Identity: \"{ceo_match}\"")
+            ceo_strength = "strong"
+        else:
+            # Try weak patterns
+            ceo_match = self._find_pattern_match(combined_text, self.weak_ceo_patterns) or \
+                        self._find_pattern_match(combined_author, self.weak_ceo_patterns)
+            if ceo_match:
+                score += 25
+                breakdown.append("CEO/Founder Identity (weak) (+25)")
+                evidence_quotes.append(f"Identity: \"{ceo_match}\"")
+                ceo_strength = "weak"
+
+        # If no CEO identity found, return score of 0
+        if not ceo_strength:
+            post["score"] = 0
+            post["score_breakdown"] = "Not a CEO/founder post"
+            post["evidence"] = "No CEO/founder identity detected"
+            return post
+
+        # STEP 2: Check for visceral pain/anxiety (+30)
+        pain_match = self._find_pattern_match(combined_text, self.visceral_pain_patterns)
+        if pain_match:
             score += 30
-            breakdown.append("CEO/Founder (+30)")
-            evidence_quotes.append(f"CEO/Founder: \"{ceo_match}\"")
+            breakdown.append("Visceral Pain/Anxiety (+30)")
+            evidence_quotes.append(f"Pain: \"{pain_match}\"")
 
-        # Urgency indicators (+25)
-        urgency_match = self._find_pattern_match(combined_text, self.urgency_patterns)
-        if urgency_match:
-            score += 25
-            breakdown.append("Urgency (+25)")
-            evidence_quotes.append(f"Urgency: \"{urgency_match}\"")
-
-        # Transition keywords (+20)
-        transition_match = self._find_pattern_match(combined_text, self.transition_patterns)
-        if transition_match:
+        # STEP 3: Check for culture/velocity issues (+20)
+        culture_match = self._find_pattern_match(combined_text, self.culture_velocity_patterns)
+        if culture_match:
             score += 20
-            breakdown.append("Transition/Hiring (+20)")
-            evidence_quotes.append(f"Hiring: \"{transition_match}\"")
+            breakdown.append("Culture/Velocity Issues (+20)")
+            evidence_quotes.append(f"Culture: \"{culture_match}\"")
 
-        # Velocity issues (+15)
-        velocity_match = self._find_pattern_match(combined_text, self.velocity_patterns)
-        if velocity_match:
-            score += 15
-            breakdown.append("Velocity Issues (+15)")
-            evidence_quotes.append(f"Velocity: \"{velocity_match}\"")
-
-        # Pain keywords (+10 each, max 3)
-        pain_count = self._count_pain_keywords(combined_text)
-        if pain_count > 0:
-            pain_score = pain_count * 10
-            score += pain_score
-            breakdown.append(f"Pain Keywords x{pain_count} (+{pain_score})")
-            pain_match = self._find_pattern_match(combined_text, self.pain_patterns)
-            if pain_match:
-                evidence_quotes.append(f"Pain: \"{pain_match}\"")
+        # STEP 4: Check for specific engineering pain (+10)
+        eng_pain_match = self._find_pattern_match(combined_text, self.engineering_pain_patterns)
+        if eng_pain_match:
+            score += 10
+            breakdown.append("Engineering Pain (+10)")
+            evidence_quotes.append(f"Engineering: \"{eng_pain_match}\"")
 
         post["score"] = score
-        post["score_breakdown"] = ", ".join(breakdown) if breakdown else "No signals"
-        post["evidence"] = " | ".join(evidence_quotes) if evidence_quotes else "No evidence extracted"
+        post["score_breakdown"] = ", ".join(breakdown) if breakdown else "CEO/founder but no pain signals"
+        post["evidence"] = " | ".join(evidence_quotes) if evidence_quotes else "CEO identity only"
 
         return post
 
